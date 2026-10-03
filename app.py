@@ -2,22 +2,25 @@ import streamlit as st
 import sqlite3
 import hashlib
 from datetime import datetime
+from openai import OpenAI
 
 # =========================
 # Page Settings
 # =========================
+
 st.set_page_config(
-    page_title="Online Store",
-    page_icon="🛒",
+    page_title="AI Online Store",
+    page_icon="🛍️",
     layout="wide"
 )
 
-DB_NAME = "store.db"
+DB_NAME = "online_store.db"
 
 
 # =========================
 # Database
 # =========================
+
 def get_connection():
     return sqlite3.connect(DB_NAME)
 
@@ -74,41 +77,60 @@ def init_database():
         )
     """)
 
-    # Create default admin
+    # Default Admin
     cur.execute(
         "SELECT id FROM users WHERE username = ?",
         ("admin",)
     )
 
     if cur.fetchone() is None:
-        cur.execute(
-            """
-            INSERT INTO users (username, password, role)
+        cur.execute("""
+            INSERT INTO users
+            (username, password, role)
             VALUES (?, ?, ?)
-            """,
-            ("admin", hash_password("admin123"), "admin")
-        )
+        """, (
+            "admin",
+            hash_password("admin123"),
+            "admin"
+        ))
 
-    # Create demo products if database is empty
+    # Demo Products
     cur.execute("SELECT COUNT(*) FROM products")
     count = cur.fetchone()[0]
 
     if count == 0:
         products = [
-            ("Classic T-Shirt", "Comfortable cotton T-shirt", 499, 20),
-            ("Hoodie", "Warm and comfortable hoodie", 899, 15),
-            ("Sneakers", "Everyday casual sneakers", 1299, 10),
-            ("Backpack", "Simple school backpack", 699, 12)
+            (
+                "Classic T-Shirt",
+                "Comfortable cotton T-shirt",
+                499,
+                20
+            ),
+            (
+                "Hoodie",
+                "Warm and comfortable hoodie",
+                899,
+                15
+            ),
+            (
+                "Sneakers",
+                "Everyday casual sneakers",
+                1299,
+                10
+            ),
+            (
+                "Backpack",
+                "Simple school backpack",
+                699,
+                12
+            )
         ]
 
-        cur.executemany(
-            """
+        cur.executemany("""
             INSERT INTO products
             (name, description, price, inventory)
             VALUES (?, ?, ?, ?)
-            """,
-            products
-        )
+        """, products)
 
     conn.commit()
     conn.close()
@@ -120,6 +142,7 @@ init_database()
 # =========================
 # Session State
 # =========================
+
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -132,24 +155,31 @@ if "role" not in st.session_state:
 if "cart" not in st.session_state:
     st.session_state.cart = {}
 
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
+
 
 # =========================
-# Login / Register
+# Login
 # =========================
-def login(username, password):
+
+def login_user(username, password):
+
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
+    cur.execute("""
         SELECT username, role
         FROM users
-        WHERE username = ? AND password = ?
-        """,
-        (username, hash_password(password))
-    )
+        WHERE username = ?
+        AND password = ?
+    """, (
+        username,
+        hash_password(password)
+    ))
 
     user = cur.fetchone()
+
     conn.close()
 
     if user:
@@ -161,7 +191,12 @@ def login(username, password):
     return False
 
 
-def register(username, password):
+# =========================
+# Register
+# =========================
+
+def register_user(username, password):
+
     if not username or not password:
         return False, "Username and password cannot be empty."
 
@@ -169,46 +204,67 @@ def register(username, password):
     cur = conn.cursor()
 
     try:
-        cur.execute(
-            """
-            INSERT INTO users (username, password, role)
+
+        cur.execute("""
+            INSERT INTO users
+            (username, password, role)
             VALUES (?, ?, ?)
-            """,
-            (username, hash_password(password), "customer")
-        )
+        """, (
+            username,
+            hash_password(password),
+            "customer"
+        ))
 
         conn.commit()
+
         return True, "Account created successfully!"
 
     except sqlite3.IntegrityError:
+
         return False, "Username already exists."
 
     finally:
+
         conn.close()
 
 
 # =========================
 # Logout
 # =========================
+
 def logout():
+
     st.session_state.logged_in = False
     st.session_state.username = ""
     st.session_state.role = ""
     st.session_state.cart = {}
+    st.session_state.chat_messages = []
+
     st.rerun()
 
 
 # =========================
 # Login Page
 # =========================
+
 def login_page():
 
-    st.title("🛒 Online Store")
-    st.write("Welcome to our online shopping website!")
+    st.title("🛍️ AI Online Store")
 
-    tab1, tab2 = st.tabs(["Login", "Create Account"])
+    st.write(
+        "Welcome to our AI-powered online shopping website!"
+    )
 
-    with tab1:
+    login_tab, register_tab = st.tabs(
+        [
+            "🔐 Login",
+            "📝 Create Account"
+        ]
+    )
+
+    # Login
+    with login_tab:
+
         st.subheader("Login")
 
         username = st.text_input(
@@ -222,30 +278,50 @@ def login_page():
             key="login_password"
         )
 
-        if st.button("Login", use_container_width=True):
+        if st.button(
+            "Login",
+            use_container_width=True
+        ):
 
-            if login(username, password):
+            if login_user(username, password):
+
                 st.success("Login successful!")
+
                 st.rerun()
+
             else:
-                st.error("Incorrect username or password.")
+
+                st.error(
+                    "Incorrect username or password."
+                )
 
         st.info(
-            "Demo Admin Account: username = admin, password = admin123"
+            "Demo Admin Account: "
+            "username = admin, password = admin123"
         )
 
-    with tab2:
-        st.subheader("Create Customer Account")
+    # Register
+    with register_tab:
+
+        st.subheader(
+            "Create Customer Account"
+        )
 
         new_username = st.text_input(
             "New Username",
-            key="register_username"
+            key="new_username"
         )
 
         new_password = st.text_input(
             "New Password",
             type="password",
-            key="register_password"
+            key="new_password"
+        )
+
+        confirm_password = st.text_input(
+            "Confirm Password",
+            type="password",
+            key="confirm_password"
         )
 
         if st.button(
@@ -253,131 +329,55 @@ def login_page():
             use_container_width=True
         ):
 
-            success, message = register(
-                new_username,
-                new_password
-            )
+            if new_password != confirm_password:
 
-            if success:
-                st.success(message)
+                st.error(
+                    "Passwords do not match."
+                )
+
             else:
-                st.error(message)
+
+                success, message = register_user(
+                    new_username,
+                    new_password
+                )
+
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
 
 
 # =========================
-# Product Functions
+# Products
 # =========================
+
 def get_products():
+
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, name, description, price, inventory
+        SELECT
+            id,
+            name,
+            description,
+            price,
+            inventory
         FROM products
-        ORDER BY id DESC
+        ORDER BY id
     """)
 
     products = cur.fetchall()
+
     conn.close()
 
     return products
 
 
-def add_product(name, description, price, inventory):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        INSERT INTO products
-        (name, description, price, inventory)
-        VALUES (?, ?, ?, ?)
-        """,
-        (name, description, price, inventory)
-    )
-
-    conn.commit()
-    conn.close()
-
-
-def update_product(product_id, name, description, price, inventory):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        UPDATE products
-        SET name = ?,
-            description = ?,
-            price = ?,
-            inventory = ?
-        WHERE id = ?
-        """,
-        (
-            name,
-            description,
-            price,
-            inventory,
-            product_id
-        )
-    )
-
-    conn.commit()
-    conn.close()
-
-
-def delete_product(product_id):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        "DELETE FROM products WHERE id = ?",
-        (product_id,)
-    )
-
-    conn.commit()
-    conn.close()
-
-
 # =========================
 # Customer Store
 # =========================
-def customer_page():
-
-    st.title("🛍️ Online Store")
-
-    col1, col2 = st.columns([4, 1])
-
-    with col1:
-        st.write(
-            f"Welcome, **{st.session_state.username}**!"
-        )
-
-    with col2:
-        if st.button("Logout"):
-            logout()
-
-    st.divider()
-
-    menu = st.radio(
-        "Menu",
-        [
-            "🛍️ Products",
-            "🛒 Shopping Cart",
-            "📋 Order History"
-        ],
-        horizontal=True
-    )
-
-    if menu == "🛍️ Products":
-        show_products()
-
-    elif menu == "🛒 Shopping Cart":
-        show_cart()
-
-    elif menu == "📋 Order History":
-        show_order_history()
-
 
 def show_products():
 
@@ -386,7 +386,9 @@ def show_products():
     products = get_products()
 
     if not products:
+
         st.info("No products available.")
+
         return
 
     cols = st.columns(2)
@@ -403,9 +405,12 @@ def show_products():
 
                 st.write(description)
 
-                st.write(f"💰 Price: **${price:.2f}**")
+                st.write(
+                    f"💰 Price: **NT$ {price:.0f}**"
+                )
 
                 if inventory > 0:
+
                     st.write(
                         f"📦 Stock: **{inventory}**"
                     )
@@ -415,7 +420,7 @@ def show_products():
                         min_value=1,
                         max_value=inventory,
                         value=1,
-                        key=f"qty_{product_id}"
+                        key=f"quantity_{product_id}"
                     )
 
                     if st.button(
@@ -424,12 +429,15 @@ def show_products():
                         use_container_width=True
                     ):
 
-                        current = st.session_state.cart.get(
-                            product_id,
-                            0
+                        current = (
+                            st.session_state.cart.get(
+                                product_id,
+                                0
+                            )
                         )
 
                         if current + quantity <= inventory:
+
                             st.session_state.cart[
                                 product_id
                             ] = current + quantity
@@ -437,18 +445,24 @@ def show_products():
                             st.success(
                                 "Added to cart!"
                             )
+
                         else:
+
                             st.error(
                                 "Not enough inventory."
                             )
 
                 else:
-                    st.error("Out of stock")
+
+                    st.error(
+                        "❌ Out of stock"
+                    )
 
 
 # =========================
 # Shopping Cart
 # =========================
+
 def show_cart():
 
     st.header("🛒 Shopping Cart")
@@ -456,7 +470,11 @@ def show_cart():
     cart = st.session_state.cart
 
     if not cart:
-        st.info("Your cart is empty.")
+
+        st.info(
+            "Your cart is empty."
+        )
+
         return
 
     products = get_products()
@@ -468,7 +486,9 @@ def show_cart():
 
     total = 0
 
-    for product_id, quantity in list(cart.items()):
+    for product_id, quantity in list(
+        cart.items()
+    ):
 
         if product_id not in product_dict:
             continue
@@ -477,9 +497,9 @@ def show_cart():
 
         name = product[1]
         price = product[3]
-        inventory = product[4]
 
         subtotal = price * quantity
+
         total += subtotal
 
         col1, col2, col3, col4 = st.columns(
@@ -487,33 +507,96 @@ def show_cart():
         )
 
         with col1:
-            st.write(f"**{name}**")
+            st.write(
+                f"**{name}**"
+            )
 
         with col2:
-            st.write(f"${price:.2f}")
+            st.write(
+                f"NT$ {price:.0f}"
+            )
 
         with col3:
-            st.write(f"Qty: {quantity}")
+            st.write(
+                f"Qty: {quantity}"
+            )
 
         with col4:
+
             if st.button(
                 "Remove",
                 key=f"remove_{product_id}"
             ):
+
                 del st.session_state.cart[
                     product_id
                 ]
+
                 st.rerun()
 
     st.divider()
 
     st.subheader(
-        f"Total: ${total:.2f}"
+        f"Total: NT$ {total:.0f}"
     )
 
-    st.write("### 💳 Checkout")
 
-    payment_method = st.selectbox(
+# =========================
+# Checkout
+# =========================
+
+def checkout():
+
+    st.header("💳 Checkout")
+
+    if not st.session_state.cart:
+
+        st.info(
+            "Your cart is empty."
+        )
+
+        return
+
+    products = get_products()
+
+    product_dict = {
+        product[0]: product
+        for product in products
+    }
+
+    total = 0
+
+    for product_id, quantity in (
+        st.session_state.cart.items()
+    ):
+
+        product = product_dict.get(
+            product_id
+        )
+
+        if not product:
+            continue
+
+        name = product[1]
+        price = product[3]
+        inventory = product[4]
+
+        if quantity > inventory:
+
+            st.error(
+                f"{name} only has "
+                f"{inventory} left."
+            )
+
+            return
+
+        total += price * quantity
+
+    st.subheader(
+        f"Total: NT$ {total:.0f}"
+    )
+
+    payment = st.selectbox(
         "Payment Method",
         [
             "Credit Card",
@@ -522,156 +605,139 @@ def show_cart():
         ]
     )
 
-    if payment_method in [
-        "Credit Card",
-        "Debit Card"
-    ]:
-
-        card_number = st.text_input(
-            "Card Number",
-            placeholder="1234 5678 9012 3456"
-        )
-
-        card_name = st.text_input(
-            "Card Holder Name"
-        )
-
     if st.button(
         "Complete Order 💳",
         use_container_width=True
     ):
 
-        complete_order(
-            total,
-            payment_method
-        )
+        conn = get_connection()
+        cur = conn.cursor()
 
+        try:
 
-# =========================
-# Complete Order
-# =========================
-def complete_order(total, payment_method):
+            # Check stock
+            for product_id, quantity in (
+                st.session_state.cart.items()
+            ):
 
-    conn = get_connection()
-    cur = conn.cursor()
+                cur.execute("""
+                    SELECT
+                        name,
+                        price,
+                        inventory
+                    FROM products
+                    WHERE id = ?
+                """, (product_id,))
 
-    try:
+                product = cur.fetchone()
 
-        # Check inventory again before purchase
-        for product_id, quantity in st.session_state.cart.items():
+                if not product:
 
-            cur.execute(
-                """
-                SELECT name, price, inventory
-                FROM products
-                WHERE id = ?
-                """,
-                (product_id,)
-            )
+                    raise Exception(
+                        "Product not found."
+                    )
 
-            product = cur.fetchone()
+                name, price, inventory = product
 
-            if product is None:
-                raise Exception(
-                    "A product no longer exists."
+                if quantity > inventory:
+
+                    raise Exception(
+                        f"Not enough stock for {name}."
+                    )
+
+            # Create order
+            cur.execute("""
+                INSERT INTO orders
+                (
+                    username,
+                    total,
+                    status,
+                    created_at
                 )
-
-            name, price, inventory = product
-
-            if quantity > inventory:
-                raise Exception(
-                    f"Not enough stock for {name}."
-                )
-
-        # Create order
-        cur.execute(
-            """
-            INSERT INTO orders
-            (username, total, status, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
+                VALUES (?, ?, ?, ?)
+            """, (
                 st.session_state.username,
                 total,
                 "Completed",
                 datetime.now().strftime(
                     "%Y-%m-%d %H:%M:%S"
                 )
-            )
-        )
+            ))
 
-        order_id = cur.lastrowid
+            order_id = cur.lastrowid
 
-        # Save order items + reduce inventory
-        for product_id, quantity in st.session_state.cart.items():
+            # Save items and reduce inventory
+            for product_id, quantity in (
+                st.session_state.cart.items()
+            ):
 
-            cur.execute(
-                """
-                SELECT name, price
-                FROM products
-                WHERE id = ?
-                """,
-                (product_id,)
-            )
+                cur.execute("""
+                    SELECT
+                        name,
+                        price
+                    FROM products
+                    WHERE id = ?
+                """, (product_id,))
 
-            product = cur.fetchone()
+                name, price = cur.fetchone()
 
-            name, price = product
-
-            cur.execute(
-                """
-                INSERT INTO order_items
-                (order_id, product_id, product_name, quantity, price)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
+                cur.execute("""
+                    INSERT INTO order_items
+                    (
+                        order_id,
+                        product_id,
+                        product_name,
+                        quantity,
+                        price
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
                     order_id,
                     product_id,
                     name,
                     quantity,
                     price
-                )
-            )
+                ))
 
-            cur.execute(
-                """
-                UPDATE products
-                SET inventory = inventory - ?
-                WHERE id = ?
-                """,
-                (
+                cur.execute("""
+                    UPDATE products
+                    SET inventory =
+                        inventory - ?
+                    WHERE id = ?
+                """, (
                     quantity,
                     product_id
-                )
+                ))
+
+            conn.commit()
+
+            st.session_state.cart = {}
+
+            st.success(
+                f"🎉 Order #{order_id} completed!"
             )
 
-        conn.commit()
+            st.info(
+                f"Payment method: {payment}"
+            )
 
-        st.session_state.cart = {}
+        except Exception as e:
 
-        st.success(
-            f"🎉 Order #{order_id} completed!"
-        )
+            conn.rollback()
 
-        st.info(
-            f"Payment method: {payment_method}"
-        )
+            st.error(
+                f"Order failed: {e}"
+            )
 
-    except Exception as e:
+        finally:
 
-        conn.rollback()
-
-        st.error(
-            f"Order failed: {e}"
-        )
-
-    finally:
-        conn.close()
+            conn.close()
 
 
 # =========================
 # Order History
 # =========================
+
 def show_order_history():
 
     st.header("📋 Order History")
@@ -679,22 +745,29 @@ def show_order_history():
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT id, total, status, created_at
+    cur.execute("""
+        SELECT
+            id,
+            total,
+            status,
+            created_at
         FROM orders
         WHERE username = ?
         ORDER BY id DESC
-        """,
-        (st.session_state.username,)
-    )
+    """, (
+        st.session_state.username,
+    ))
 
     orders = cur.fetchall()
 
     conn.close()
 
     if not orders:
-        st.info("You have no orders yet.")
+
+        st.info(
+            "You have no orders yet."
+        )
+
         return
 
     for order in orders:
@@ -702,89 +775,302 @@ def show_order_history():
         order_id, total, status, created_at = order
 
         with st.expander(
-            f"Order #{order_id} — ${total:.2f}"
+            f"Order #{order_id} "
+            f"— NT$ {total:.0f}"
         ):
 
-            st.write(f"Status: {status}")
-            st.write(f"Date: {created_at}")
-
-            conn = get_connection()
-            cur = conn.cursor()
-
-            cur.execute(
-                """
-                SELECT product_name, quantity, price
-                FROM order_items
-                WHERE order_id = ?
-                """,
-                (order_id,)
+            st.write(
+                f"Status: {status}"
             )
 
-            items = cur.fetchall()
-            conn.close()
+            st.write(
+                f"Date: {created_at}"
+            )
 
-            for item in items:
 
-                name, quantity, price = item
+# =========================
+# AI STORE DATA
+# =========================
 
-                st.write(
-                    f"- {name} × {quantity} "
-                    f"(${price:.2f} each)"
+def get_store_data_for_ai():
+
+    products = get_products()
+
+    if not products:
+        return "There are currently no products."
+
+    data = []
+
+    for product in products:
+
+        product_id, name, description, price, inventory = product
+
+        data.append(
+            f"""
+Product: {name}
+Description: {description}
+Price: NT$ {price:.0f}
+Inventory: {inventory}
+"""
+        )
+
+    return "\n".join(data)
+
+
+# =========================
+# Grok AI
+# =========================
+
+def ask_grok(question):
+
+    store_data = get_store_data_for_ai()
+
+    try:
+
+        api_key = st.secrets["XAI_API_KEY"]
+
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.x.ai/v1"
+        )
+
+        system_prompt = f"""
+You are the AI shopping assistant
+for an online store.
+
+The following information comes directly
+from the store database:
+
+{store_data}
+
+IMPORTANT RULES:
+
+1. Only use the store database information.
+2. Never invent products.
+3. Never invent prices.
+4. Never invent inventory numbers.
+5. If a product is not listed, say it is not
+   currently available in the store.
+6. If inventory is 0, say the product is
+   out of stock.
+7. When recommending products, only recommend
+   products from the database.
+8. Prefer products that have inventory.
+9. Answer in Traditional Chinese.
+10. Keep answers simple and helpful.
+"""
+
+        response = client.chat.completions.create(
+            model="grok-4.7",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": question
+                }
+            ]
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+
+        return (
+            "AI 暫時無法使用。\n\n"
+            "請確認 Streamlit Secrets 裡有 "
+            "XAI_API_KEY。"
+        )
+
+
+# =========================
+# AI Shopping Assistant
+# =========================
+
+def ai_chatbot():
+
+    st.header("🤖 AI Shopping Assistant")
+
+    st.write(
+        "Ask me about products, prices, "
+        "inventory, or recommendations."
+    )
+
+    st.info(
+        "例如：無線耳機多少錢？"
+    )
+
+    for message in (
+        st.session_state.chat_messages
+    ):
+
+        with st.chat_message(
+            message["role"]
+        ):
+
+            st.write(
+                message["content"]
+            )
+
+    question = st.chat_input(
+        "Ask about our products..."
+    )
+
+    if question:
+
+        st.session_state.chat_messages.append(
+            {
+                "role": "user",
+                "content": question
+            }
+        )
+
+        with st.chat_message("user"):
+
+            st.write(question)
+
+        with st.chat_message("assistant"):
+
+            with st.spinner(
+                "AI 正在查詢商品資料..."
+            ):
+
+                answer = ask_grok(
+                    question
                 )
+
+                st.write(answer)
+
+                st.session_state.chat_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": answer
+                    }
+                )
+
+
+# =========================
+# Customer Page
+# =========================
+
+def customer_page():
+
+    st.title("🛍️ AI Online Store")
+
+    st.write(
+        f"Welcome, "
+        f"**{st.session_state.username}**!"
+    )
+
+    menu = st.radio(
+        "Menu",
+        [
+            "🛍️ Products",
+            "🛒 Shopping Cart",
+            "💳 Checkout",
+            "📋 Order History",
+            "🤖 AI Shopping Assistant"
+        ],
+        horizontal=True
+    )
+
+    st.divider()
+
+    if menu == "🛍️ Products":
+
+        show_products()
+
+    elif menu == "🛒 Shopping Cart":
+
+        show_cart()
+
+    elif menu == "💳 Checkout":
+
+        checkout()
+
+    elif menu == "📋 Order History":
+
+        show_order_history()
+
+    elif menu == "🤖 AI Shopping Assistant":
+
+        ai_chatbot()
+
+    st.divider()
+
+    if st.button("🚪 Logout"):
+
+        logout()
 
 
 # =========================
 # Admin Page
 # =========================
+
 def admin_page():
 
     st.title("👑 Admin Dashboard")
 
-    col1, col2 = st.columns([4, 1])
-
-    with col1:
-        st.write(
-            f"Logged in as **{st.session_state.username}**"
-        )
-
-    with col2:
-        if st.button("Logout"):
-            logout()
-
-    st.divider()
+    st.write(
+        f"Logged in as "
+        f"**{st.session_state.username}**"
+    )
 
     menu = st.radio(
         "Admin Menu",
         [
             "📦 Manage Products",
             "📊 Inventory",
-            "📋 All Orders"
+            "📋 All Orders",
+            "🤖 Test AI"
         ],
         horizontal=True
     )
 
+    st.divider()
+
     if menu == "📦 Manage Products":
+
         manage_products()
 
     elif menu == "📊 Inventory":
+
         inventory_page()
 
     elif menu == "📋 All Orders":
+
         all_orders()
+
+    elif menu == "🤖 Test AI":
+
+        ai_chatbot()
+
+    st.divider()
+
+    if st.button("🚪 Logout"):
+
+        logout()
 
 
 # =========================
 # Manage Products
 # =========================
+
 def manage_products():
 
     st.header("📦 Manage Products")
 
     st.subheader("➕ Add Product")
 
-    with st.form("add_product_form"):
+    with st.form(
+        "add_product_form"
+    ):
 
-        name = st.text_input("Product Name")
+        name = st.text_input(
+            "Product Name"
+        )
 
         description = st.text_area(
             "Description"
@@ -793,7 +1079,7 @@ def manage_products():
         price = st.number_input(
             "Price",
             min_value=0.0,
-            value=10.0
+            value=100.0
         )
 
         inventory = st.number_input(
@@ -809,17 +1095,34 @@ def manage_products():
         if submitted:
 
             if not name:
+
                 st.error(
                     "Product name is required."
                 )
+
             else:
 
-                add_product(
+                conn = get_connection()
+                cur = conn.cursor()
+
+                cur.execute("""
+                    INSERT INTO products
+                    (
+                        name,
+                        description,
+                        price,
+                        inventory
+                    )
+                    VALUES (?, ?, ?, ?)
+                """, (
                     name,
                     description,
                     price,
                     inventory
-                )
+                ))
+
+                conn.commit()
+                conn.close()
 
                 st.success(
                     "Product added successfully!"
@@ -829,7 +1132,9 @@ def manage_products():
 
     st.divider()
 
-    st.subheader("✏️ Edit / Delete Products")
+    st.subheader(
+        "✏️ Edit Products"
+    )
 
     products = get_products()
 
@@ -838,7 +1143,7 @@ def manage_products():
         product_id, name, description, price, inventory = product
 
         with st.expander(
-            f"{name} — ${price:.2f}"
+            f"{name} — NT$ {price:.0f}"
         ):
 
             new_name = st.text_input(
@@ -877,13 +1182,27 @@ def manage_products():
                     use_container_width=True
                 ):
 
-                    update_product(
-                        product_id,
+                    conn = get_connection()
+                    cur = conn.cursor()
+
+                    cur.execute("""
+                        UPDATE products
+                        SET
+                            name = ?,
+                            description = ?,
+                            price = ?,
+                            inventory = ?
+                        WHERE id = ?
+                    """, (
                         new_name,
                         new_description,
                         new_price,
-                        new_inventory
-                    )
+                        new_inventory,
+                        product_id
+                    ))
+
+                    conn.commit()
+                    conn.close()
 
                     st.success(
                         "Product updated!"
@@ -899,7 +1218,16 @@ def manage_products():
                     use_container_width=True
                 ):
 
-                    delete_product(product_id)
+                    conn = get_connection()
+                    cur = conn.cursor()
+
+                    cur.execute("""
+                        DELETE FROM products
+                        WHERE id = ?
+                    """, (product_id,))
+
+                    conn.commit()
+                    conn.close()
 
                     st.success(
                         "Product deleted!"
@@ -911,9 +1239,12 @@ def manage_products():
 # =========================
 # Inventory
 # =========================
+
 def inventory_page():
 
-    st.header("📊 Inventory Management")
+    st.header(
+        "📊 Inventory Management"
+    )
 
     products = get_products()
 
@@ -924,21 +1255,33 @@ def inventory_page():
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.write(f"**{name}**")
+
+            st.write(
+                f"**{name}**"
+            )
 
         with col2:
+
             st.write(
-                f"Price: ${price:.2f}"
+                f"Price: NT$ {price:.0f}"
             )
 
         with col3:
+
             if inventory == 0:
-                st.error("OUT OF STOCK")
+
+                st.error(
+                    "OUT OF STOCK"
+                )
+
             elif inventory <= 5:
+
                 st.warning(
                     f"Low stock: {inventory}"
                 )
+
             else:
+
                 st.success(
                     f"Stock: {inventory}"
                 )
@@ -947,57 +1290,56 @@ def inventory_page():
 # =========================
 # All Orders
 # =========================
+
 def all_orders():
 
-    st.header("📋 All Customer Orders")
+    st.header(
+        "📋 All Customer Orders"
+    )
 
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT id, username, total, status, created_at
+    cur.execute("""
+        SELECT
+            id,
+            username,
+            total,
+            status,
+            created_at
         FROM orders
         ORDER BY id DESC
-        """
-    )
+    """)
 
     orders = cur.fetchall()
 
     conn.close()
 
     if not orders:
-        st.info("No orders yet.")
+
+        st.info(
+            "No orders yet."
+        )
+
         return
 
     for order in orders:
 
         order_id, username, total, status, created_at = order
 
-        with st.expander(
-            f"Order #{order_id} — {username} — ${total:.2f}"
-        ):
-
-            st.write(
-                f"Customer: {username}"
-            )
-
-            st.write(
-                f"Total: ${total:.2f}"
-            )
-
-            st.write(
-                f"Status: {status}"
-            )
-
-            st.write(
-                f"Date: {created_at}"
-            )
+        st.write(
+            f"Order #{order_id} | "
+            f"Customer: {username} | "
+            f"NT$ {total:.0f} | "
+            f"{status} | "
+            f"{created_at}"
+        )
 
 
 # =========================
 # Main App
 # =========================
+
 if not st.session_state.logged_in:
 
     login_page()
@@ -1005,7 +1347,9 @@ if not st.session_state.logged_in:
 else:
 
     if st.session_state.role == "admin":
+
         admin_page()
 
     else:
+
         customer_page()
